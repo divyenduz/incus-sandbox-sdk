@@ -1,11 +1,26 @@
 {
   "name": "incus-sandbox-sdk",
-  "module": "index.ts",
+  "version": "0.1.0",
+  "description": "A typesafe TypeScript SDK for Incus containers and VMs",
+  "module": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "type": "module",
+  "scripts": {
+    "test": "bun run tests/test-sdk.ts",
+    "build": "bun build src/index.ts --outdir dist --target node",
+    "typecheck": "tsc --noEmit"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node": "^20"
   },
   "peerDependencies": {
     "typescript": "^5"
-  }
+  },
+  "dependencies": {
+    "nanoid": "^5.1.6"
+  },
+  "keywords": ["incus", "lxc", "container", "vm", "sandbox", "typescript"],
+  "license": "MIT"
 }

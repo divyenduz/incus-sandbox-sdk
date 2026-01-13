@@ -1,4 +1,4 @@
-# incus-sdk
+# incus-sandbox-sdk
 
 A typesafe TypeScript SDK for [Incus](https://linuxcontainers.org/incus/), providing a simple API for managing containers and VMs as isolated compute sandboxes.
 
@@ -8,7 +8,7 @@ A typesafe TypeScript SDK for [Incus](https://linuxcontainers.org/incus/), provi
 - 🛡️ **Type-safe** - Full TypeScript support with comprehensive types
 - 📦 **Containers & VMs** - Choose between fast containers or fully isolated VMs
 - 📁 **Filesystem access** - Read, write, push, pull files easily
-- ⚡ **Fast** - Container startup in ~1-2 seconds
+- ⚡ **Fast** - Container startup in ~4 seconds
 - 🔧 **Zero config** - Works out of the box with sensible defaults
 
 ## Prerequisites
@@ -28,18 +28,10 @@ sudo incus admin init --minimal
 sudo usermod -aG incus-admin $USER
 ```
 
-**Fedora:**
-
-```bash
-sudo dnf install incus
-sudo incus admin init --minimal
-sudo usermod -aG incus-admin $USER
-```
-
 **Verify installation:**
 
 ```bash
-incus launch ubuntu:24.04 test-container
+incus launch images:ubuntu/24.04 test-container
 incus exec test-container -- echo "Hello from container!"
 incus delete test-container --force
 ```
@@ -47,28 +39,26 @@ incus delete test-container --force
 ## Installation
 
 ```bash
-npm install incus-sdk
+npm install incus-sandbox-sdk
 # or
-bun add incus-sdk
+bun add incus-sandbox-sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { incus } from 'incus-sdk';
+import { incus } from 'incus-sandbox-sdk';
 
 // Create a sandbox
-const sandbox = await incus.sandbox.create({
-  image: 'ubuntu:24.04',
-});
+const sandbox = await incus.sandbox.create();
 
 // Run a command
 const result = await sandbox.runCommand('echo "Hello from sandbox!"');
 console.log(result.stdout); // "Hello from sandbox!"
 
 // Run code
-const output = await sandbox.runCode('print(1 + 1)', { language: 'python' });
-console.log(output.output); // "2"
+const output = await sandbox.runCode('print(2 + 2)', { language: 'python' });
+console.log(output.output); // "4"
 
 // Clean up
 await sandbox.destroy();
@@ -79,33 +69,30 @@ await sandbox.destroy();
 ### Creating Sandboxes
 
 ```typescript
-// Simple container (fastest)
+// Simple container (fastest, ~4s startup)
 const container = await incus.sandbox.create();
 
 // With custom image
 const ubuntu = await incus.sandbox.create({
-  image: 'ubuntu:22.04',
+  image: 'images:debian/12',
 });
 
 // With resource limits
 const limited = await incus.sandbox.create({
-  image: 'ubuntu:24.04',
   limits: {
     cpu: 2,
     memory: '1GB',
   },
 });
 
-// Virtual machine (stronger isolation)
+// Virtual machine (stronger isolation, ~30s startup)
 const vm = await incus.sandbox.create({
-  image: 'ubuntu:24.04',
   type: 'vm',
 });
 
 // Named sandbox (for later retrieval)
 const named = await incus.sandbox.create({
   name: 'my-dev-env',
-  image: 'ubuntu:24.04',
 });
 ```
 
@@ -133,9 +120,6 @@ const result2 = await sandbox.runCommand('npm install', {
 // Python
 const py = await sandbox.runCode('print("Hello")', { language: 'python' });
 
-// Node.js
-const js = await sandbox.runCode('console.log(1 + 1)', { language: 'node' });
-
 // Bash
 const sh = await sandbox.runCode('echo $((2 + 2))', { language: 'bash' });
 
@@ -145,6 +129,8 @@ const slow = await sandbox.runCode(longRunningCode, {
   timeout: 120000,
 });
 ```
+
+**Supported languages:** `python`, `node`, `bash`, `ruby`, `go`
 
 ### Filesystem Operations
 
@@ -164,10 +150,14 @@ if (await sandbox.fs.exists('/app/config.json')) {
 const files = await sandbox.fs.readdir('/app');
 
 // Create directory
-await sandbox.fs.mkdir('/app/output');
+await sandbox.fs.mkdir('/app/output', { recursive: true });
+
+// Get file info
+const stat = await sandbox.fs.stat('/app/config.json');
+console.log(stat.type, stat.size);
 
 // Delete file or directory
-await sandbox.fs.rm('/app/temp', { recursive: true });
+await sandbox.fs.rm('/app/temp', { recursive: true, force: true });
 
 // Transfer files between host and sandbox
 await sandbox.fs.push('./local/script.py', '/app/script.py');
@@ -187,7 +177,10 @@ await sandbox.start();
 await sandbox.restart();
 
 // Check state
-const state = await sandbox.getState(); // 'running' | 'stopped' | ...
+const state = await sandbox.getState(); // 'running' | 'stopped' | 'frozen' | 'error'
+
+// Destroy (cleanup)
+await sandbox.destroy();
 ```
 
 ### Snapshots
@@ -217,7 +210,9 @@ const all = await incus.sandbox.list();
 
 // Filter by type
 const containers = await incus.sandbox.list({ type: 'container' });
-const vms = await incus.sandbox.list({ type: 'vm' });
+
+// Filter by name prefix
+const mySandboxes = await incus.sandbox.list({ prefix: 'my-' });
 
 // Get existing sandbox by name
 const existing = await incus.sandbox.getByName('my-dev-env');
@@ -226,24 +221,25 @@ const existing = await incus.sandbox.getByName('my-dev-env');
 ### Configuration
 
 ```typescript
-import { incus } from 'incus-sdk';
+import { incus } from 'incus-sandbox-sdk';
 
 // Configure globally
 incus.setConfig({
-  defaultImage: 'debian:12',
+  defaultImage: 'images:debian/12',
   defaultType: 'container',
   project: 'my-project',
 });
-
-// Or use environment variables
-// INCUS_SOCKET=/var/lib/incus/unix.socket
-// INCUS_PROJECT=my-project
 ```
 
 ## Error Handling
 
 ```typescript
-import { incus, SandboxNotFoundError, TimeoutError } from 'incus-sdk';
+import {
+  incus,
+  SandboxNotFoundError,
+  TimeoutError,
+  SandboxNotRunningError,
+} from 'incus-sandbox-sdk';
 
 try {
   const sandbox = await incus.sandbox.getByName('nonexistent');
@@ -266,7 +262,7 @@ try {
 
 | Feature | Container | VM |
 |---------|-----------|-----|
-| Startup time | ~1-2 seconds | ~10-30 seconds |
+| Startup time | ~4 seconds | ~30 seconds |
 | Isolation | Namespace/cgroup | Full hardware virtualization |
 | Overhead | Minimal | Higher (dedicated kernel) |
 | Use case | Code execution, dev envs | Untrusted code, kernel testing |
@@ -281,7 +277,7 @@ try {
 ### AI Code Execution Agent
 
 ```typescript
-import { incus } from 'incus-sdk';
+import { incus } from 'incus-sandbox-sdk';
 
 async function executeUserCode(code: string, language: 'python' | 'node') {
   const sandbox = await incus.sandbox.create({
@@ -303,53 +299,39 @@ async function executeUserCode(code: string, language: 'python' | 'node') {
 ### Persistent Development Environment
 
 ```typescript
-import { incus } from 'incus-sdk';
+import { incus, SandboxNotFoundError } from 'incus-sandbox-sdk';
 
 async function getOrCreateDevEnv(name: string) {
   try {
     return await incus.sandbox.getByName(name);
-  } catch {
-    const sandbox = await incus.sandbox.create({
-      name,
-      image: 'ubuntu:24.04',
-      limits: { cpu: 4, memory: '4GB' },
-    });
-    
-    // Install dependencies
-    await sandbox.runCommand('apt-get update && apt-get install -y nodejs npm python3');
-    await sandbox.snapshot('fresh-install');
-    
-    return sandbox;
+  } catch (err) {
+    if (err instanceof SandboxNotFoundError) {
+      const sandbox = await incus.sandbox.create({
+        name,
+        limits: { cpu: 4, memory: '4GB' },
+      });
+
+      // Install dependencies
+      await sandbox.runCommand('apt-get update && apt-get install -y nodejs python3');
+      await sandbox.snapshot('fresh-install');
+
+      return sandbox;
+    }
+    throw err;
   }
 }
 ```
 
-### Batch Processing
+## Running Tests
 
-```typescript
-import { incus } from 'incus-sdk';
-
-async function processInParallel(items: string[]) {
-  const results = await Promise.all(
-    items.map(async (item) => {
-      const sandbox = await incus.sandbox.create();
-      try {
-        await sandbox.fs.writeFile('/input.txt', item);
-        await sandbox.runCommand('process-script /input.txt > /output.txt');
-        return await sandbox.fs.readFile('/output.txt');
-      } finally {
-        await sandbox.destroy();
-      }
-    })
-  );
-  return results;
-}
+```bash
+bun run test
 ```
 
 ## Requirements
 
 - Node.js 18+ or Bun 1.0+
-- Linux with Incus 5.0+ installed
+- Linux with Incus installed
 - User must be in `incus-admin` group (or have socket access)
 
 ## License
