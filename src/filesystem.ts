@@ -18,9 +18,10 @@ export class FileSystem {
   }
 
   async writeFile(path: string, content: string, options?: WriteOptions): Promise<void> {
+    const fs = await import('fs/promises');
     const tempFile = `/tmp/incus-sdk-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    await Bun.write(tempFile, content);
+    await fs.writeFile(tempFile, content);
 
     try {
       await client.pushFile(this.sandboxName, tempFile, path);
@@ -33,7 +34,7 @@ export class FileSystem {
         await client.execInInstance(this.sandboxName, ['chown', options.owner, path]);
       }
     } finally {
-      await Bun.file(tempFile).exists() && (await import('fs/promises')).unlink(tempFile);
+      await fs.unlink(tempFile).catch(() => {});
     }
   }
 

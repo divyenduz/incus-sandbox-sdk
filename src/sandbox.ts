@@ -6,6 +6,9 @@ import {
   SandboxNotRunningError,
   TimeoutError,
   NameConflictError,
+  MountError,
+  PathNotFoundError,
+  MountNotFoundError,
 } from './errors';
 import type {
   SandboxOptions,
@@ -20,6 +23,9 @@ import type {
   CodeOptions,
   CodeResult,
   SnapshotInfo,
+  MountOptions,
+  MountInfo,
+  MountMode,
 } from './types';
 import { DEFAULT_CONFIG, LANGUAGE_COMMANDS } from './types';
 
@@ -132,6 +138,152 @@ export class Sandbox {
 
   async deleteSnapshot(name: string): Promise<void> {
     await client.deleteSnapshot(this.name, name);
+  }
+
+  async mount(options: MountOptions): Promise<MountInfo> {
+    const mode: MountMode = options.mode ?? 'overlay';
+    const shift = options.shift === true;
+    const deviceName = `mount-${nanoid(6)}`;
+
+    const fs = await import('fs/promises');
+    try {
+      await fs.access(options.source);
+    } catch {
+      throw new PathNotFoundError(options.source);
+    }
+
+    const state = await this.getState();
+    if (state !== 'running') {
+      throw new SandboxNotRunningError(this.name);
+    }
+
+    if (mode === 'overlay') {
+      if (this.type === 'vm') {
+        throw new MountError('Overlay mode is not supported for VMs, use readonly or readwrite mode');
+      }
+
+      const basePath = `/.overlay-base/${deviceName}`;
+      const workDir = `/.overlay-work/${deviceName}`;
+
+      const currentIntercept = await client.getInstanceConfig(this.name, 'security.syscalls.intercept.mount');
+      if (currentIntercept !== 'true') {
+        await client.setInstanceConfig(this.name, 'security.syscalls.intercept.mount', 'true');
+        await client.setInstanceConfig(this.name, 'security.syscalls.intercept.mount.allowed', 'overlay');
+        await client.restartInstance(this.name);
+        const startTime = Date.now();
+        while (Date.now() - startTime < 30000) {
+          const state = await this.getState();
+          if (state === 'running') break;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+
+      await client.addDiskDevice(this.name, deviceName, options.source, basePath, {
+        readonly: true,
+        shift,
+      });
+
+      const mkdirResult = await client.execInInstance(this.name, [
+        'mkdir',
+        '-p',
+        `${workDir}/upper`,
+        `${workDir}/work`,
+        options.target,
+      ]);
+      if (mkdirResult.exitCode !== 0) {
+        await client.removeDiskDevice(this.name, deviceName).catch(() => {});
+        throw new MountError(`Failed to create overlay directories: ${mkdirResult.stderr}`);
+      }
+
+      const mountResult = await client.execInInstance(this.name, [
+        'mount',
+        '-t',
+        'overlay',
+        'overlay',
+        '-o',
+        `lowerdir=${basePath},upperdir=${workDir}/upper,workdir=${workDir}/work`,
+        options.target,
+      ]);
+      if (mountResult.exitCode !== 0) {
+        await client.removeDiskDevice(this.name, deviceName).catch(() => {});
+        throw new MountError(`Failed to mount overlay: ${mountResult.stderr}`);
+      }
+    } else if (mode === 'readonly') {
+      await client.addDiskDevice(this.name, deviceName, options.source, options.target, {
+        readonly: true,
+        shift,
+      });
+    } else {
+      await client.addDiskDevice(this.name, deviceName, options.source, options.target, {
+        readonly: false,
+        shift,
+      });
+    }
+
+    return {
+      source: options.source,
+      target: options.target,
+      mode,
+      device: deviceName,
+    };
+  }
+
+  async unmount(target: string): Promise<void> {
+    const mounts = await this.listMounts();
+    const mount = mounts.find((m) => m.target === target);
+
+    if (!mount) {
+      throw new MountNotFoundError(target);
+    }
+
+    if (mount.mode === 'overlay') {
+      await client.execInInstance(this.name, ['umount', target]).catch(() => {});
+      await client.execInInstance(this.name, ['rm', '-rf', `/.overlay-work/${mount.device}`]).catch(() => {});
+    }
+
+    await client.removeDiskDevice(this.name, mount.device);
+  }
+
+  async listMounts(): Promise<MountInfo[]> {
+    const devices = await client.listDevices(this.name);
+    const mounts: MountInfo[] = [];
+
+    for (const [deviceName, device] of Object.entries(devices)) {
+      if (device.type !== 'disk' || !deviceName.startsWith('mount-')) {
+        continue;
+      }
+
+      let mode: MountMode = 'readwrite';
+      let target = device.path || '';
+
+      if (device.path?.startsWith('/.overlay-base/')) {
+        mode = 'overlay';
+        const overlayDevice = device.path.replace('/.overlay-base/', '');
+        const mountsOutput = await client.execInInstance(this.name, ['mount']);
+        const overlayLine = mountsOutput.stdout
+          .split('\n')
+          .find((line) => line.includes(`/.overlay-work/${overlayDevice}/upper`));
+        if (overlayLine) {
+          const match = overlayLine.match(/on (.+?) type overlay/);
+          if (match) {
+            target = match[1];
+          }
+        }
+      } else if (device.readonly === 'true') {
+        mode = 'readonly';
+      }
+
+      if (device.source && target) {
+        mounts.push({
+          source: device.source,
+          target,
+          mode,
+          device: deviceName,
+        });
+      }
+    }
+
+    return mounts;
   }
 }
 

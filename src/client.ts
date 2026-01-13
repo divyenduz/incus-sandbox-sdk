@@ -255,7 +255,7 @@ export async function execInInstance(
 }
 
 export async function pushFile(name: string, localPath: string, remotePath: string): Promise<void> {
-  const result = await execIncus(['file', 'push', localPath, `${name}${remotePath}`]);
+  const result = await execIncus(['file', 'push', '-p', localPath, `${name}${remotePath}`]);
   if (result.exitCode !== 0) {
     throw new CommandError(`Failed to push file: ${result.stderr}`);
   }
@@ -306,4 +306,78 @@ export async function listSnapshots(name: string): Promise<Array<{ name: string;
     createdAt: new Date(s.created_at),
     stateful: s.stateful,
   }));
+}
+
+export async function addDiskDevice(
+  instanceName: string,
+  deviceName: string,
+  source: string,
+  path: string,
+  options?: { readonly?: boolean; shift?: boolean }
+): Promise<void> {
+  const args = ['config', 'device', 'add', instanceName, deviceName, 'disk', `source=${source}`, `path=${path}`];
+
+  if (options?.readonly) {
+    args.push('readonly=true');
+  }
+
+  if (options?.shift === true) {
+    args.push('shift=true');
+  }
+
+  const result = await execIncus(args);
+  if (result.exitCode !== 0) {
+    throw new CommandError(`Failed to add disk device: ${result.stderr}`);
+  }
+}
+
+export async function removeDiskDevice(instanceName: string, deviceName: string): Promise<void> {
+  const result = await execIncus(['config', 'device', 'remove', instanceName, deviceName]);
+  if (result.exitCode !== 0) {
+    throw new CommandError(`Failed to remove disk device: ${result.stderr}`);
+  }
+}
+
+export async function setInstanceConfig(instanceName: string, key: string, value: string): Promise<void> {
+  const result = await execIncus(['config', 'set', instanceName, `${key}=${value}`]);
+  if (result.exitCode !== 0) {
+    throw new CommandError(`Failed to set config ${key}: ${result.stderr}`);
+  }
+}
+
+export async function getInstanceConfig(instanceName: string, key: string): Promise<string | null> {
+  const result = await execIncus(['config', 'get', instanceName, key]);
+  if (result.exitCode !== 0) {
+    return null;
+  }
+  return result.stdout.trim();
+}
+
+export async function listDevices(instanceName: string): Promise<
+  Record<string, { type: string; source?: string; path?: string; readonly?: string; shift?: string }>
+> {
+  const result = await execIncus(['config', 'device', 'show', instanceName]);
+  if (result.exitCode !== 0) {
+    throw new CommandError(`Failed to list devices: ${result.stderr}`);
+  }
+
+  if (!result.stdout.trim()) {
+    return {};
+  }
+
+  const lines = result.stdout.split('\n');
+  const devices: Record<string, Record<string, string>> = {};
+  let currentDevice: string | null = null;
+
+  for (const line of lines) {
+    if (!line.startsWith(' ') && line.endsWith(':')) {
+      currentDevice = line.slice(0, -1);
+      devices[currentDevice] = {};
+    } else if (currentDevice && line.includes(':')) {
+      const [key, ...valueParts] = line.trim().split(':');
+      devices[currentDevice][key.trim()] = valueParts.join(':').trim();
+    }
+  }
+
+  return devices as Record<string, { type: string; source?: string; path?: string; readonly?: string; shift?: string }>;
 }

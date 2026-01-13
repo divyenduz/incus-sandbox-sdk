@@ -8,6 +8,7 @@ A typesafe TypeScript SDK for [Incus](https://linuxcontainers.org/incus/), provi
 - 🛡️ **Type-safe** - Full TypeScript support with comprehensive types
 - 📦 **Containers & VMs** - Choose between fast containers or fully isolated VMs
 - 📁 **Filesystem access** - Read, write, push, pull files easily
+- 🔗 **Overlay mounts** - Mount host folders with isolated writes (perfect for git repos)
 - ⚡ **Fast** - Container startup in ~4 seconds
 - 🔧 **Zero config** - Works out of the box with sensible defaults
 
@@ -46,21 +47,47 @@ bun add incus-sandbox-sdk
 
 ## Quick Start
 
+The recommended workflow is to **mount a host folder with overlay isolation** - your local files are instantly available in the sandbox, and any changes made inside the sandbox don't affect your host files.
+
 ```typescript
 import { incus } from 'incus-sandbox-sdk';
 
 // Create a sandbox
 const sandbox = await incus.sandbox.create();
 
+// Mount your project with overlay isolation (writes don't affect host)
+await sandbox.mount({
+  source: '/home/user/my-project',
+  target: '/workspace',
+  mode: 'overlay',
+});
+
+// Your files are instantly available - no copying needed!
+const result = await sandbox.runCommand('ls /workspace');
+console.log(result.stdout); // package.json, src/, ...
+
+// Make changes safely - they only exist in the sandbox
+await sandbox.runCommand('npm install && npm run build', { cwd: '/workspace' });
+
+// When done, destroy - host files are untouched
+await sandbox.destroy();
+```
+
+### Alternative: Simple code execution
+
+```typescript
+import { incus } from 'incus-sandbox-sdk';
+
+const sandbox = await incus.sandbox.create();
+
 // Run a command
 const result = await sandbox.runCommand('echo "Hello from sandbox!"');
 console.log(result.stdout); // "Hello from sandbox!"
 
-// Run code
+// Run code directly
 const output = await sandbox.runCode('print(2 + 2)', { language: 'python' });
 console.log(output.output); // "4"
 
-// Clean up
 await sandbox.destroy();
 ```
 
@@ -164,6 +191,60 @@ await sandbox.fs.push('./local/script.py', '/app/script.py');
 await sandbox.fs.pull('/app/results.json', './local/results.json');
 ```
 
+### Host Folder Mounts (Recommended)
+
+Mount host directories into sandboxes with different isolation modes. This is the **recommended workflow** for working with existing codebases - no need to copy files, and changes can be safely isolated.
+
+```typescript
+// Mount with overlay - writes are isolated (DEFAULT, recommended)
+await sandbox.mount({
+  source: '/home/user/my-repo',
+  target: '/workspace',
+  mode: 'overlay',
+});
+
+// Files are instantly available
+await sandbox.runCommand('cat /workspace/package.json');
+
+// Changes only exist in the sandbox - host is untouched
+await sandbox.runCommand('echo "test" > /workspace/new-file.txt');
+// /home/user/my-repo/new-file.txt does NOT exist on host!
+
+// Unmount when done
+await sandbox.unmount('/workspace');
+```
+
+**Mount modes:**
+
+| Mode | Writes | Use Case |
+|------|--------|----------|
+| `overlay` | Isolated to sandbox | Safe experimentation, builds, tests |
+| `readonly` | Blocked | Shared dependencies, reference data |
+| `readwrite` | Affect host | Development workflow (use with caution) |
+
+```typescript
+// Readonly mount - no writes allowed
+await sandbox.mount({
+  source: '/shared/libs',
+  target: '/libs',
+  mode: 'readonly',
+});
+
+// Readwrite mount - changes affect host (careful!)
+await sandbox.mount({
+  source: '/home/user/project',
+  target: '/project',
+  mode: 'readwrite',
+});
+
+// List all mounts
+const mounts = await sandbox.listMounts();
+console.log(mounts);
+// [{ source: '/home/user/project', target: '/project', mode: 'readwrite', device: 'mount-abc123' }]
+```
+
+> **Note:** Overlay mode requires containers (not VMs) and triggers a one-time container restart to enable mount syscall interception.
+
 ### Sandbox Lifecycle
 
 ```typescript
@@ -239,6 +320,8 @@ import {
   SandboxNotFoundError,
   TimeoutError,
   SandboxNotRunningError,
+  MountError,
+  PathNotFoundError,
 } from 'incus-sandbox-sdk';
 
 try {
@@ -273,6 +356,40 @@ try {
 - Maximum security for untrusted code
 
 ## Examples
+
+### Sandboxed Git Repository Workflow
+
+The most common use case: work on an existing git repository in complete isolation.
+
+```typescript
+import { incus } from 'incus-sandbox-sdk';
+
+async function runIsolatedBuild(repoPath: string) {
+  const sandbox = await incus.sandbox.create();
+
+  // Mount repo with overlay - instant access, isolated writes
+  await sandbox.mount({
+    source: repoPath,
+    target: '/workspace',
+    mode: 'overlay',
+  });
+
+  // Install deps and build - doesn't pollute your local node_modules
+  await sandbox.runCommand('npm ci && npm run build', {
+    cwd: '/workspace',
+    timeout: 120000,
+  });
+
+  // Run tests in isolation
+  const result = await sandbox.runCommand('npm test', { cwd: '/workspace' });
+
+  await sandbox.destroy();
+  return { success: result.exitCode === 0, output: result.stdout };
+}
+
+// Your local repo stays clean!
+await runIsolatedBuild('/home/user/my-project');
+```
 
 ### AI Code Execution Agent
 

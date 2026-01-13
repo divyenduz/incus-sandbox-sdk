@@ -384,7 +384,126 @@ incus-sdk/
 
 ---
 
-## 6. Future Considerations (Out of Scope for v1)
+## 6. Host Folder Mounts
+
+### 6.1 Overview
+
+Mount host directories into sandboxes with optional overlay isolation. This enables:
+- Mounting git repositories without re-cloning
+- Sharing test fixtures across sandboxes
+- Development workflows where host IDE edits are visible in sandbox
+- Isolated experimentation on existing codebases
+
+### 6.2 Mount Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `overlay` | Host folder as readonly base, writes go to ephemeral overlay | Sandboxed experimentation, isolated builds |
+| `readonly` | Pure readonly mount, no writes allowed | Shared dependencies, reference data |
+| `readwrite` | Direct bind-mount, writes affect host | Development workflows (use with caution) |
+
+### 6.3 API
+
+#### 6.3.1 Mount at Creation Time
+
+```typescript
+const sandbox = await incus.sandbox.create({
+  mounts: [{
+    source: '/home/user/repos/myproject',
+    target: '/workspace',
+    mode: 'overlay',
+  }]
+});
+```
+
+#### 6.3.2 Mount After Creation
+
+```typescript
+await sandbox.mount({
+  source: '/home/user/repos/myproject',
+  target: '/workspace',
+  mode: 'overlay',
+});
+```
+
+#### 6.3.3 Unmount
+
+```typescript
+await sandbox.unmount('/workspace');
+```
+
+#### 6.3.4 List Mounts
+
+```typescript
+const mounts = await sandbox.listMounts();
+// [{ source: '/home/user/repos/myproject', target: '/workspace', mode: 'overlay', device: 'mount-a1b2c3' }]
+```
+
+### 6.4 Types
+
+```typescript
+type MountMode = 'overlay' | 'readonly' | 'readwrite';
+
+interface MountOptions {
+  source: string;      // Host path (absolute)
+  target: string;      // Container path
+  mode?: MountMode;    // Default: 'overlay'
+  shift?: boolean;     // UID/GID shifting (default: false, requires kernel 6.2+)
+}
+
+interface MountInfo {
+  source: string;
+  target: string;
+  mode: MountMode;
+  device: string;      // Internal Incus device name
+}
+```
+
+### 6.5 Implementation (Approach 2: OverlayFS inside container)
+
+For `mode: 'overlay'`:
+1. Bind-mount host path as readonly at `/.overlay-base/<device>`
+2. Create upper/work directories in container storage at `/.overlay-work/<device>/`
+3. Mount overlayfs at target path with lowerdir=base, upperdir=upper, workdir=work
+
+For `mode: 'readonly'`:
+1. Bind-mount host path as readonly directly at target path
+
+For `mode: 'readwrite'`:
+1. Bind-mount host path with write access directly at target path
+
+### 6.6 Incus Commands Used
+
+```bash
+# Add readonly disk device
+incus config device add <instance> <device> disk source=<host_path> path=<container_path> readonly=true shift=true
+
+# Setup overlay inside container
+incus exec <instance> -- mkdir -p /.overlay-work/<device>/upper /.overlay-work/<device>/work
+incus exec <instance> -- mount -t overlay overlay \
+  -o lowerdir=/.overlay-base/<device>,upperdir=/.overlay-work/<device>/upper,workdir=/.overlay-work/<device>/work \
+  <target_path>
+
+# Remove device
+incus config device remove <instance> <device>
+```
+
+### 6.7 Limitations
+
+- `overlay` mode requires container type (not VM) - throws error for VMs
+- `shift=true` requires kernel 6.2+ for VFS idmap shifting (default: false)
+- Overlay writes are ephemeral - lost on unmount or sandbox destroy
+- First overlay mount on a container requires restart (to enable syscall interception)
+
+### 6.8 Errors
+
+- `MountError` - Failed to setup mount or overlay
+- `PathNotFoundError` - Source path doesn't exist on host
+- `MountNotFoundError` - Target path not mounted (for unmount)
+
+---
+
+## 7. Future Considerations (Out of Scope for v2)
 
 - **Networking:** Port forwarding, custom networks
 - **GPU passthrough:** For ML workloads
@@ -396,7 +515,7 @@ incus-sdk/
 
 ---
 
-## 7. Success Criteria
+## 8. Success Criteria
 
 1. All core operations (create, destroy, runCommand, fs operations) work reliably
 2. Full TypeScript types with no `any` escapes

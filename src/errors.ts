@@ -66,3 +66,24 @@ export class IncusConnectionError extends IncusSdkError {
     this.name = 'IncusConnectionError';
   }
 }
+
+export class MountError extends IncusSdkError {
+  constructor(message: string, cause?: Error) {
+    super(message, 'MOUNT_ERROR', cause);
+    this.name = 'MountError';
+  }
+}
+
+export class PathNotFoundError extends IncusSdkError {
+  constructor(path: string) {
+    super(`Path '${path}' not found on host`, 'PATH_NOT_FOUND');
+    this.name = 'PathNotFoundError';
+  }
+}
+
+export class MountNotFoundError extends IncusSdkError {
+  constructor(target: string) {
+    super(`No mount found at '${target}'`, 'MOUNT_NOT_FOUND');
+    this.name = 'MountNotFoundError';
+  }
+}

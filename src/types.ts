@@ -16,6 +16,7 @@ export interface SandboxOptions {
   profiles?: string[];
   autoDestroy?: boolean;
   timeout?: number;
+  mounts?: MountOptions[];
 }
 
 export interface ListOptions {
@@ -91,6 +92,22 @@ export interface SnapshotInfo {
   name: string;
   createdAt: Date;
   stateful: boolean;
+}
+
+export type MountMode = 'overlay' | 'readonly' | 'readwrite';
+
+export interface MountOptions {
+  source: string;
+  target: string;
+  mode?: MountMode;
+  shift?: boolean;
+}
+
+export interface MountInfo {
+  source: string;
+  target: string;
+  mode: MountMode;
+  device: string;
 }
 
 export interface SandboxInfo {

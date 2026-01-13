@@ -259,6 +259,95 @@ async function runTests() {
       testResults.push({ name: 'Start sandbox', passed: false });
     }
 
+    // Test 20: Mount with overlay mode
+    log('Test 20: Mount host folder with overlay');
+    const hostPath = `${process.env.HOME}/plv8ify`;
+    const mountInfo = await sandbox.mount({
+      source: hostPath,
+      target: '/workspace',
+      mode: 'overlay',
+    });
+    if (mountInfo.device.startsWith('mount-') && mountInfo.mode === 'overlay') {
+      pass(`Overlay mount created: ${mountInfo.device}`);
+      testResults.push({ name: 'Mount overlay', passed: true });
+    } else {
+      fail(`Unexpected mount info: ${JSON.stringify(mountInfo)}`);
+      testResults.push({ name: 'Mount overlay', passed: false });
+    }
+
+    // Test 21: Verify mounted content is readable
+    log('Test 21: Verify mounted content');
+    const lsResult = await sandbox.runCommand('ls /workspace');
+    if (lsResult.stdout.includes('package.json') && lsResult.stdout.includes('src')) {
+      pass(`Mounted content visible: package.json, src found`);
+      testResults.push({ name: 'Mounted content readable', passed: true });
+    } else {
+      fail(`Unexpected ls output: ${lsResult.stdout}`);
+      testResults.push({ name: 'Mounted content readable', passed: false });
+    }
+
+    // Test 22: Verify overlay isolation - writes don't affect host
+    log('Test 22: Verify overlay isolation');
+    await sandbox.runCommand('echo "sandbox-only" > /workspace/test-overlay.txt');
+    const existsInSandbox = await sandbox.fs.exists('/workspace/test-overlay.txt');
+    const fs = await import('fs/promises');
+    let existsOnHost = false;
+    try {
+      await fs.access(`${hostPath}/test-overlay.txt`);
+      existsOnHost = true;
+    } catch {
+      existsOnHost = false;
+    }
+    if (existsInSandbox && !existsOnHost) {
+      pass('Overlay isolation works: file exists in sandbox but not on host');
+      testResults.push({ name: 'Overlay isolation', passed: true });
+    } else {
+      fail(`Isolation failed: sandbox=${existsInSandbox}, host=${existsOnHost}`);
+      testResults.push({ name: 'Overlay isolation', passed: false });
+    }
+
+    // Test 23: List mounts
+    log('Test 23: List mounts');
+    const mounts = await sandbox.listMounts();
+    const ourMount = mounts.find((m) => m.target === '/workspace');
+    if (ourMount && ourMount.mode === 'overlay' && ourMount.source === hostPath) {
+      pass(`Mount listed: ${ourMount.device} -> ${ourMount.target}`);
+      testResults.push({ name: 'List mounts', passed: true });
+    } else {
+      fail(`Mount not found or incorrect: ${JSON.stringify(mounts)}`);
+      testResults.push({ name: 'List mounts', passed: false });
+    }
+
+    // Test 24: Unmount
+    log('Test 24: Unmount');
+    await sandbox.unmount('/workspace');
+    const mountsAfter = await sandbox.listMounts();
+    const stillMounted = mountsAfter.find((m) => m.target === '/workspace');
+    if (!stillMounted) {
+      pass('Mount removed successfully');
+      testResults.push({ name: 'Unmount', passed: true });
+    } else {
+      fail('Mount still exists after unmount');
+      testResults.push({ name: 'Unmount', passed: false });
+    }
+
+    // Test 25: Mount with readonly mode
+    log('Test 25: Mount readonly');
+    const readonlyMount = await sandbox.mount({
+      source: hostPath,
+      target: '/readonly-workspace',
+      mode: 'readonly',
+    });
+    const writeAttempt = await sandbox.runCommand('touch /readonly-workspace/should-fail.txt 2>&1 || echo "WRITE_FAILED"');
+    if (writeAttempt.stdout.includes('WRITE_FAILED') || writeAttempt.stdout.includes('Read-only')) {
+      pass('Readonly mount prevents writes');
+      testResults.push({ name: 'Readonly mount', passed: true });
+    } else {
+      fail(`Readonly mount allowed write: ${writeAttempt.stdout}`);
+      testResults.push({ name: 'Readonly mount', passed: false });
+    }
+    await sandbox.unmount('/readonly-workspace');
+
   } catch (err) {
     fail('Unexpected error during tests', err);
   } finally {
