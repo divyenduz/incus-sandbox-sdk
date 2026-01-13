@@ -375,7 +375,9 @@ export async function listDevices(instanceName: string): Promise<
       devices[currentDevice] = {};
     } else if (currentDevice && line.includes(':')) {
       const [key, ...valueParts] = line.trim().split(':');
-      devices[currentDevice][key.trim()] = valueParts.join(':').trim();
+      if (key) {
+        devices[currentDevice]![key.trim()] = valueParts.join(':').trim();
+      }
     }
   }
 

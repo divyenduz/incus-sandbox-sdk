@@ -6,9 +6,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "bin": {
+    "isb": "./dist/cli/bin.js"
+  },
   "scripts": {
     "test": "bun run tests/test-sdk.ts",
     "build": "bun build src/index.ts --outdir dist --target node",
+    "build:cli": "bun build src/cli/bin.ts --outdir dist/cli --target node",
+    "build:binary": "bun build src/cli/bin.ts --compile --outfile isb",
+    "build:all": "bun run build && bun run build:cli",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -19,8 +25,9 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@stricli/core": "^1.2.5",
     "nanoid": "^5.1.6"
   },
-  "keywords": ["incus", "lxc", "container", "vm", "sandbox", "typescript"],
+  "keywords": ["incus", "lxc", "container", "vm", "sandbox", "typescript", "cli"],
   "license": "MIT"
 }

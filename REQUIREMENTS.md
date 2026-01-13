@@ -369,10 +369,13 @@ incus-sdk/
 │   ├── client.ts          # Incus API client
 │   ├── sandbox.ts         # Sandbox class
 │   ├── filesystem.ts      # Filesystem operations
-│   ├── commands.ts        # Command execution
-│   ├── config.ts          # Configuration management
 │   ├── errors.ts          # Error classes
-│   └── types.ts           # TypeScript types
+│   ├── types.ts           # TypeScript types
+│   └── cli/               # CLI implementation
+│       ├── bin.ts         # CLI entry point
+│       ├── app.ts         # Stricli application
+│       ├── context.ts     # CLI context
+│       └── commands/      # Individual commands
 ├── tests/
 │   ├── sandbox.test.ts
 │   ├── filesystem.test.ts
@@ -503,7 +506,52 @@ incus config device remove <instance> <device>
 
 ---
 
-## 7. Future Considerations (Out of Scope for v2)
+## 7. Command Line Interface (CLI)
+
+### 7.1 Overview
+
+The SDK includes a CLI tool called `isb` (incus sandbox) that exposes all SDK functionality via the command line.
+
+### 7.2 Commands
+
+| Command | Description |
+|---------|-------------|
+| `isb create [name]` | Create a new sandbox |
+| `isb destroy <name>` | Destroy a sandbox |
+| `isb list` | List all sandboxes |
+| `isb info <name>` | Show sandbox details |
+| `isb start <name>` | Start a stopped sandbox |
+| `isb stop <name>` | Stop a running sandbox |
+| `isb restart <name>` | Restart a sandbox |
+| `isb exec <name> <command...>` | Run a command in a sandbox |
+| `isb run <name> --language <lang>` | Run code in a sandbox |
+| `isb push <name> <local> <remote>` | Copy file to sandbox |
+| `isb pull <name> <remote> <local>` | Copy file from sandbox |
+| `isb cat <name> <path>` | Read file from sandbox |
+| `isb ls <name> [path]` | List directory in sandbox |
+| `isb mount <name> <source> <target>` | Mount host directory |
+| `isb unmount <name> <target>` | Unmount directory |
+| `isb mounts <name>` | List mounts |
+| `isb snapshot <name> <snap-name>` | Create snapshot |
+| `isb restore <name> <snap-name>` | Restore snapshot |
+| `isb snapshots <name>` | List snapshots |
+
+### 7.3 Implementation
+
+- Built with [Stricli](https://bloomberg.github.io/stricli/) CLI framework
+- Type-safe command definitions
+- Supports building as standalone binary via Bun
+
+### 7.4 Build Scripts
+
+```bash
+bun run build:cli      # Build CLI to dist/cli/
+bun run build:binary   # Build standalone binary
+```
+
+---
+
+## 9. Future Considerations (Out of Scope for v2)
 
 - **Networking:** Port forwarding, custom networks
 - **GPU passthrough:** For ML workloads
@@ -515,7 +563,7 @@ incus config device remove <instance> <device>
 
 ---
 
-## 8. Success Criteria
+## 10. Success Criteria
 
 1. All core operations (create, destroy, runCommand, fs operations) work reliably
 2. Full TypeScript types with no `any` escapes

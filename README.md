@@ -11,6 +11,7 @@ A typesafe TypeScript SDK for [Incus](https://linuxcontainers.org/incus/), provi
 - 🔗 **Overlay mounts** - Mount host folders with isolated writes (perfect for git repos)
 - ⚡ **Fast** - Container startup in ~4 seconds
 - 🔧 **Zero config** - Works out of the box with sensible defaults
+- 🖥️ **CLI included** - Full-featured `isb` command-line tool
 
 ## Prerequisites
 
@@ -439,10 +440,92 @@ async function getOrCreateDevEnv(name: string) {
 }
 ```
 
+## CLI (`isb`)
+
+The SDK includes a full-featured command-line tool called `isb` (incus sandbox).
+
+### Installation
+
+```bash
+# Install globally via npm
+npm install -g incus-sandbox-sdk
+
+# Or build a standalone binary
+bun run build:binary
+sudo mv isb /usr/local/bin/
+```
+
+### CLI Usage
+
+```bash
+# Sandbox lifecycle
+isb create mybox                        # Create a sandbox
+isb create --image images:debian/12     # With custom image
+isb create --cpu 2 --memory 1GB         # With resource limits
+isb list                                # List all sandboxes
+isb info mybox                          # Show sandbox details
+isb destroy mybox                       # Destroy sandbox
+
+# Command execution
+isb exec mybox ls -la                   # Run a command
+isb exec mybox --cwd /app npm test      # With working directory
+isb exec mybox --env NODE_ENV=prod cmd  # With environment variables
+
+# Code execution
+isb run mybox --language python --code 'print(2+2)'
+isb run mybox --language node script.js
+
+# Filesystem
+isb push mybox ./local.txt /remote.txt  # Copy file to sandbox
+isb pull mybox /remote.txt ./local.txt  # Copy file from sandbox
+isb cat mybox /etc/hostname             # Read file
+isb ls mybox /app                       # List directory
+
+# Mounts (recommended workflow)
+isb mount mybox ~/project /workspace              # Mount with overlay (default)
+isb mount mybox ~/data /data --mode readonly      # Readonly mount
+isb mounts mybox                                  # List mounts
+isb unmount mybox /workspace                      # Unmount
+
+# Snapshots
+isb snapshot mybox before-test          # Create snapshot
+isb restore mybox before-test           # Restore snapshot
+isb snapshots mybox                     # List snapshots
+```
+
+### Example: Isolated Build
+
+```bash
+# Create sandbox and mount your project
+isb create dev
+isb mount dev ~/my-project /workspace
+
+# Run build in isolation - host files untouched
+isb exec dev --cwd /workspace npm ci
+isb exec dev --cwd /workspace npm run build
+isb exec dev --cwd /workspace npm test
+
+# Cleanup
+isb destroy dev
+```
+
 ## Running Tests
 
 ```bash
 bun run test
+```
+
+## Building
+
+```bash
+# Build SDK
+bun run build
+
+# Build CLI
+bun run build:cli
+
+# Build standalone binary
+bun run build:binary
 ```
 
 ## Requirements

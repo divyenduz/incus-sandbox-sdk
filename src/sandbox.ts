@@ -265,7 +265,7 @@ export class Sandbox {
           .find((line) => line.includes(`/.overlay-work/${overlayDevice}/upper`));
         if (overlayLine) {
           const match = overlayLine.match(/on (.+?) type overlay/);
-          if (match) {
+          if (match && match[1]) {
             target = match[1];
           }
         }
